@@ -1,0 +1,129 @@
+# NextCoop Admin Portal — Implementation Prompt
+
+Use this prompt with Claude Code (or paste directly into a new chat) to scaffold the full system admin portal with tenant management as the entry point.
+
+---
+
+## PROMPT
+
+Build a Next.js admin portal for NextCoop, a multi-tenant cooperative management SaaS. This is a full-stack Next.js application — no separate .NET backend. Server Actions and Server Components talk directly to PostgreSQL.
+
+### Stack
+- Next.js (App Router), React, TypeScript (strict mode)
+- Tailwind CSS + shadcnui (Radix-based components)
+- Prisma ORM for the control database
+- `pg` (node-postgres) with a pooled, LRU-cached connection factory for per-tenant databases
+- Zod for all validation (single source of truth — shared between forms and Server Actions)
+- Zustand — UI-only state (sidebar collapse), nothing data-related
+- Auth.js (NextAuth v5) or Lucia for sessionauth, backed by the control database
+- PM2-managed Node deployment target (not serverlessVercel) — connection pooling should assume a long-lived process
+
+### Rendering approach Full SSR
+- Every page under `(admin)` is a Server Component. No client-side data fetching, no TanStack Query, no client-side table library.
+- Filters, search, sort, and pagination are driven entirely by URL `searchParams` — implemented as native `form method=GET` and plain `a`pagination links, not `onChange` handlers.
+- Mutations (createsuspenddelete tenant) use Server Actions invoked via native `form action={serverAction}` — no client-side mutation hooks, no modals requiring client state. Confirmation steps for destructive actions are separate routes (e.g. `tenants[id]suspend`), not client dialogs.
+- Validate twice once implicitly via HTML `required``type` attributes for UX, and always again inside the Server Action via Zod — the Server Action is the real trust boundary since client-side validation can be bypassed.
+- Components are Server Components by default. Only mark `'use client'` where genuinely required (e.g. sidebar toggle in the layout shell) — everything in the tenants flow should ship zero client JS.
+
+### Database architecture
+Two tiers of PostgreSQL
+
+1. Control database (single shared DB) — tenant registry. Schema
+   ```
+   tenants id (uuid), name, slug (unique), status (pendingactivesuspendedarchived),
+            plan (startergrowthenterprise), db_host, db_name, db_port,
+            db_credentials_ref (secrets manager key, never raw credentials),
+            admin_email, created_at, updated_at
+   ```
+   Managed via Prisma (`schema.prisma` + migrations).
+
+2. Per-tenant databases — one Postgres database per tenant (`tenant_slug`), provisioned on tenant creation. Connection routing looks up `db_host``db_name`credentials from the control DB based on tenant context, then opens a pooled connection to that specific database. Use an LRU-cache-backed pool factory (max ~50 pools, TTL ~15min) to avoid holding connections open indefinitely for idle tenants.
+
+   Provisioning flow (triggered from tenant creation, ideally via a background job rather than inline in the request path since it needs elevated DB privileges)
+   - `CREATE DATABASE tenant_slug` using a separate, locked-down provisioning role (not the app's normal runtime credentials)
+   - Run the tenant schema migration template (`migrationstenant-template0001_init.sql`) against the new database
+   - Update the tenant's status from `pending` → `active` in the control DB once provisioning succeeds
+
+### Folder structure to scaffold
+```
+app
+├── (auth)loginpage.tsx
+├── (auth)layout.tsx
+├── (admin)
+│   ├── layout.tsx                  # sidebartopbar shell, session check
+│   ├── page.tsx                    # redirect → tenants
+│   ├── tenants
+│   │   ├── page.tsx                # Server Component reads searchParams, queries DB, renders table inline
+│   │   ├── newpage.tsx            # form action={createTenant}
+│   │   ├── [tenantId]
+│   │   │   ├── page.tsx
+│   │   │   ├── settingspage.tsx
+│   │   │   ├── userspage.tsx
+│   │   │   ├── billingpage.tsx
+│   │   │   └── suspendpage.tsx    # confirmation step, no client modal
+│   │   └── _components
+│   │       ├── tenant-table.tsx        # Server Component, plain table, sortable header links
+│   │       ├── tenant-filters.tsx      # Server Component, form method=GET
+│   │       ├── tenant-row-actions.tsx  # Server Component, form action={serverAction}
+│   │       ├── status-badge.tsx
+│   │       └── pagination-links.tsx
+│   ├── userspage.tsx               # cross-tenantplatform user management
+│   └── settingspage.tsx
+├── apiwebhooksroute.ts            # Route Handler — only for external callers (billing, etc.)
+└── middleware.ts                    # session validation, route guarding
+
+actions
+└── tenants.ts                       # 'use server' — createTenant, suspendTenant, deleteTenant
+
+services
+├── tenant-provisioning.service.ts   # CREATE DATABASE + run migrations
+├── tenant-connection.factory.ts     # per-tenant pg.Pool routing, LRU-cached
+├── tenant.repository.ts             # control_db CRUD
+└── secrets.service.ts               # secrets manager lookups for tenant DB credentials
+
+lib
+├── db
+│   ├── control-db.ts                # Prisma client → control_db
+│   └── tenant-db.ts                 # dynamic pool factory per tenant
+├── schemas
+│   └── tenant.schema.ts             # Zod schema, single source of truth
+└── auth
+    └── session.ts
+
+prisma
+├── schema.prisma
+└── migrations
+
+migrations
+└── tenant-template0001_init.sql
+
+stores
+└── ui-store.ts                      # Zustand — sidebar collapse only, nothing data-related
+```
+
+### Specific implementation requirements
+
+1. Tenant list page (`tenantspage.tsx`) Server Component reading `status`, `q`, `page`, `sort`, `order` from `searchParams`. Fetch tenants via `tenant.repository.ts` with those filters applied at the SQL level (not in-memory). Render an inline `table` with sortable column headers built as links that toggle `sort``order` params. Show a status badge per row (color-coded activesuspendedpending). Include pagination links at the bottom.
+
+2. Tenant filters a Server Component rendering a native `form method=GET action=tenants` with a search input (`name=q`) and status `select` — submitting navigates and re-renders the page with new filters. No JavaScript required for this to function.
+
+3. Create tenant flow (`tenantsnewpage.tsx`) plain HTML form posting to a Server Action. Validate with the shared `tenantSchema` (name, slug regex `^[a-z0-9-]+$`, plan enum, admin email). On validation failure, redirect back with an error query param rendered above the form. On success create the control DB record with `status 'pending'`, call the provisioning service, update status to `active`, `revalidatePath('tenants')`, then redirect to `tenants`.
+
+4. Suspenddelete actions each table row has a small `form action={suspendTenant}` with a hidden `tenantId` input and a submit button. Route the actual destructive confirmation through a dedicated `[tenantId]suspendpage.tsx` route rather than a client-side dialog.
+
+5. Auth middleware checks session cookie on every `(admin)` route, redirects unauthenticated requests to `login`. Determine whether this portal is for platform operators only (single global session, no per-tenant context switching) or also serves tenant-level admins (in which case use separate route groups, e.g. `(platform-admin)` vs `(tenant-admin)`, with different middleware guards) — ask me which before scaffolding auth if it's not already clear from context.
+
+6. Validation define all schemas in `libschemas`. Every Server Action must `safeParse` its input before touching the database, regardless of what client-side `required``type` attributes already enforce.
+
+7. No TanStack Query, no client-side table library, no Kendo UI. This is intentionally a zero-client-JS-by-default implementation for the tenant management flow — confirm this constraint before introducing any client component beyond the sidebar toggle.
+
+### Acceptance criteria
+- Tenant list, filtering, sorting, and pagination work correctly with JavaScript disabled in the browser.
+- Creating a tenant provisions an actual new PostgreSQL database and updates its status without manual intervention.
+- No raw database credentials appear in the control DB table or in any client-visible code path.
+- `lib` has no imports from `app` or `components` (one-way dependency `app → components → lib`).
+- Running `tsc --noEmit` and Zod validation both pass for the tenant creation flow with intentionally invalid input (bad slug, missing email, etc.) before touching the database.
+
+---
+
+Adjust scope (e.g. skip provisioning automation and stub it, or skip auth if it's handled elsewhere) by telling me which sections to omit before you run this.
