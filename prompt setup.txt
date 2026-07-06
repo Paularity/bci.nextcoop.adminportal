@@ -1,129 +1,297 @@
-# NextCoop Admin Portal — Implementation Prompt
-
-Use this prompt with Claude Code (or paste directly into a new chat) to scaffold the full system admin portal with tenant management as the entry point.
+Here's the full current prompt, in full:
 
 ---
 
-## PROMPT
+# NextCoop — System Admin Portal — Full Project Setup Prompt
 
-Build a Next.js admin portal for NextCoop, a multi-tenant cooperative management SaaS. This is a full-stack Next.js application — no separate .NET backend. Server Actions and Server Components talk directly to PostgreSQL.
+Use this prompt with Claude Code (or paste into a new chat) to scaffold the System Admin Portal for this sprint. It supersedes the earlier "mock SQLite, frontend-first" draft — this version adds the REST API layer required by PBI 24729 and maps every requirement to the five sprint PBIs. Read this whole document before writing any code; it defines the full contract the implementation must satisfy.
 
-### Stack
-- Next.js (App Router), React, TypeScript (strict mode)
-- Tailwind CSS + shadcnui (Radix-based components)
-- Prisma ORM for the control database
-- `pg` (node-postgres) with a pooled, LRU-cached connection factory for per-tenant databases
-- Zod for all validation (single source of truth — shared between forms and Server Actions)
-- Zustand — UI-only state (sidebar collapse), nothing data-related
-- Auth.js (NextAuth v5) or Lucia for sessionauth, backed by the control database
-- PM2-managed Node deployment target (not serverlessVercel) — connection pooling should assume a long-lived process
+---
 
-### Rendering approach Full SSR
-- Every page under `(admin)` is a Server Component. No client-side data fetching, no TanStack Query, no client-side table library.
-- Filters, search, sort, and pagination are driven entirely by URL `searchParams` — implemented as native `form method=GET` and plain `a`pagination links, not `onChange` handlers.
-- Mutations (createsuspenddelete tenant) use Server Actions invoked via native `form action={serverAction}` — no client-side mutation hooks, no modals requiring client state. Confirmation steps for destructive actions are separate routes (e.g. `tenants[id]suspend`), not client dialogs.
-- Validate twice once implicitly via HTML `required``type` attributes for UX, and always again inside the Server Action via Zod — the Server Action is the real trust boundary since client-side validation can be bypassed.
-- Components are Server Components by default. Only mark `'use client'` where genuinely required (e.g. sidebar toggle in the layout shell) — everything in the tenants flow should ship zero client JS.
+## 0. Non-negotiable constraints
 
-### Database architecture
-Two tiers of PostgreSQL
+- Single **SQLite** database file (`prisma/dev.db`), managed by **Prisma**, `provider = "sqlite"`. No control-DB/per-tenant-DB split — that architecture is deferred (see §8).
+- The **web application must consume tenant data through the internal REST API** (`app/api/tenants/...`) — **not** by calling Prisma/the repository directly from Server Components. This is a hard requirement from PBI 24729 (AC-API-*), and it's a deliberate shift from the earlier draft.
+- Server Components fetch from the internal API using server-side `fetch`. Server Actions (triggered by native `form action={...}`) also call the internal API rather than touching Prisma directly — Server Actions are HTTP clients to your own API, not a bypass of it.
+- Every mutation still goes through Zod validation as the trust boundary — once client-side (via the API route handler receiving the request) and once more defensively if a Server Action pre-validates before calling the API.
+- Full SSR philosophy from the earlier draft still holds: URL `searchParams` drive filtering/sort/pagination, native `form` elements drive mutations. The two justified client-side exceptions are the sidebar toggle and the tenant data table (TanStack Table + shadcn, see §1) — both are UI-rendering components, not data-fetching ones; the data itself still arrives via server-side fetch to the internal API and is passed down as props.
+- Every PBI below gets its own branch off `main`: `feature/{PBI-ID}-short-desc`.
 
-1. Control database (single shared DB) — tenant registry. Schema
-   ```
-   tenants id (uuid), name, slug (unique), status (pendingactivesuspendedarchived),
-            plan (startergrowthenterprise), db_host, db_name, db_port,
-            db_credentials_ref (secrets manager key, never raw credentials),
-            admin_email, created_at, updated_at
-   ```
-   Managed via Prisma (`schema.prisma` + migrations).
+---
 
-2. Per-tenant databases — one Postgres database per tenant (`tenant_slug`), provisioned on tenant creation. Connection routing looks up `db_host``db_name`credentials from the control DB based on tenant context, then opens a pooled connection to that specific database. Use an LRU-cache-backed pool factory (max ~50 pools, TTL ~15min) to avoid holding connections open indefinitely for idle tenants.
+## 1. Tech stack & packages
 
-   Provisioning flow (triggered from tenant creation, ideally via a background job rather than inline in the request path since it needs elevated DB privileges)
-   - `CREATE DATABASE tenant_slug` using a separate, locked-down provisioning role (not the app's normal runtime credentials)
-   - Run the tenant schema migration template (`migrationstenant-template0001_init.sql`) against the new database
-   - Update the tenant's status from `pending` → `active` in the control DB once provisioning succeeds
+```bash
+# Core
+npx create-next-app@latest nextcoop-admin --typescript --tailwind --app --no-src-dir
+cd nextcoop-admin
 
-### Folder structure to scaffold
+# Database
+npm install prisma @prisma/client
+npx prisma init --datasource-provider sqlite
+
+# Validation
+npm install zod
+
+# Auth (session + password hashing)
+npm install next-auth@beta          # Auth.js v5, Credentials provider
+npm install bcryptjs
+npm install -D @types/bcryptjs
+
+# UI
+npx shadcn@latest init              # installs Radix primitives, cva, clsx, tailwind-merge as needed
+npx shadcn@latest add button input select table badge card label form
+npm install lucide-react
+
+# Data table
+npm install @tanstack/react-table
+
+# State (UI-only)
+npm install zustand
+
+# Utilities
+npm install date-fns
+npm install nanoid                  # tenant code / id generation helpers if needed beyond Prisma's default cuid
+
+# Dev tooling
+npm install -D tsx                  # run prisma/seed.ts
+npm install -D eslint prettier eslint-config-prettier
 ```
-app
-├── (auth)loginpage.tsx
-├── (auth)layout.tsx
-├── (admin)
-│   ├── layout.tsx                  # sidebartopbar shell, session check
-│   ├── page.tsx                    # redirect → tenants
-│   ├── tenants
-│   │   ├── page.tsx                # Server Component reads searchParams, queries DB, renders table inline
-│   │   ├── newpage.tsx            # form action={createTenant}
-│   │   ├── [tenantId]
-│   │   │   ├── page.tsx
-│   │   │   ├── settingspage.tsx
-│   │   │   ├── userspage.tsx
-│   │   │   ├── billingpage.tsx
-│   │   │   └── suspendpage.tsx    # confirmation step, no client modal
-│   │   └── _components
-│   │       ├── tenant-table.tsx        # Server Component, plain table, sortable header links
-│   │       ├── tenant-filters.tsx      # Server Component, form method=GET
-│   │       ├── tenant-row-actions.tsx  # Server Component, form action={serverAction}
-│   │       ├── status-badge.tsx
-│   │       └── pagination-links.tsx
-│   ├── userspage.tsx               # cross-tenantplatform user management
-│   └── settingspage.tsx
-├── apiwebhooksroute.ts            # Route Handler — only for external callers (billing, etc.)
-└── middleware.ts                    # session validation, route guarding
 
-actions
-└── tenants.ts                       # 'use server' — createTenant, suspendTenant, deleteTenant
+**Package rationale (so the AI implementing this doesn't second-guess the choices):**
+- `next-auth@beta` (Auth.js v5) — Credentials provider against the local `User` table, JWT session strategy. Chosen over hand-rolled cookies because AC-LGN-06 requires a "secure session" and AC-LGN-05 requires role-based authorization at the auth layer — Auth.js gives both via `callbacks.jwt` / `callbacks.session` without custom cookie-signing code.
+- `bcryptjs` over `bcrypt` — pure JS, no native build step, fine for a mock/dev-scale SQLite setup.
+- `shadcn/ui` — copies component source into the repo (not a runtime dependency), Tailwind-based, matches the "no Kendo UI" constraint from the base architecture doc.
+- `@tanstack/react-table` — headless table logic (column defs, sorting/pagination state machinery) paired with shadcn's `table` primitive for markup. Used in **manual/controlled mode** (`manualSorting`, `manualPagination`, `manualFiltering: true`) — TanStack Table does not own the data or trigger its own fetches; it only renders columns and reflects sort/page state that still lives in the URL. This supersedes the earlier "no client-side table library" constraint specifically for tables — everything else (search form, mutation forms) stays server-driven per §0.
+- `zustand` — sidebar collapse state only. Nothing tenant-data-related ever touches Zustand; that's exclusively Server Component + `searchParams` territory.
 
-services
-├── tenant-provisioning.service.ts   # CREATE DATABASE + run migrations
-├── tenant-connection.factory.ts     # per-tenant pg.Pool routing, LRU-cached
-├── tenant.repository.ts             # control_db CRUD
-└── secrets.service.ts               # secrets manager lookups for tenant DB credentials
+---
 
-lib
-├── db
-│   ├── control-db.ts                # Prisma client → control_db
-│   └── tenant-db.ts                 # dynamic pool factory per tenant
-├── schemas
-│   └── tenant.schema.ts             # Zod schema, single source of truth
-└── auth
-    └── session.ts
+## 2. Database schema (Prisma / SQLite)
 
-prisma
+```prisma
+// prisma/schema.prisma
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL") // file:./dev.db
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  SYSTEM_ADMIN
+  TENANT_ADMIN
+}
+
+enum TenantStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  email        String   @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  mobileNumber String?
+  role         UserRole
+  tenantId     String?             // set for TENANT_ADMIN users, null for SYSTEM_ADMIN
+  tenant       Tenant?  @relation(fields: [tenantId], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Tenant {
+  id                String       @id @default(cuid())
+  tenantCode        String       @unique
+  cooperativeName   String
+  cooperativeAddress String
+  status            TenantStatus @default(ACTIVE)
+  administrators    User[]
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  entityType  String   // "Tenant"
+  entityId    String
+  action      String   // "CREATE" | "UPDATE" | "ACTIVATE" | "DEACTIVATE" | "DELETE"
+  performedBy String   // User.id of the acting System Admin
+  changes     String?  // JSON string of before/after diff, nullable for CREATE
+  createdAt   DateTime @default(now())
+}
+```
+
+Seed script (`prisma/seed.ts`) must create:
+- One `SYSTEM_ADMIN` user (for login testing — document the mock credentials in the README, do not hardcode them silently with no reference).
+- Two or three mock `Tenant` rows, each with one `TENANT_ADMIN` user, to populate the dashboard grid and exercise search/pagination immediately.
+
+---
+
+## 3. Folder structure
+
+```
+app/
+├── (auth)/
+│   ├── login/page.tsx                    # PBI 24475
+│   └── layout.tsx
+├── (admin)/
+│   ├── layout.tsx                        # sidebar/topbar shell, session check
+│   ├── page.tsx                          # redirect → tenants (dashboard)
+│   └── tenants/
+│       ├── page.tsx                      # PBI 24726 — dashboard/grid
+│       ├── new/page.tsx                  # PBI 24727 — create tenant + admin
+│       ├── [tenantId]/
+│       │   ├── page.tsx                  # PBI 24728 — view details
+│       │   ├── edit/page.tsx             # PBI 24728 — edit
+│       │   ├── activate/page.tsx         # confirm route, no client modal
+│       │   ├── deactivate/page.tsx       # confirm route, no client modal
+│       │   └── delete/page.tsx           # confirm route, no client modal
+│       └── _components/
+│           ├── tenant-columns.tsx        # 'use client' — TanStack Table column defs
+│           ├── tenant-table.tsx          # 'use client' — useReactTable in manual mode, shadcn <Table>
+│           ├── tenant-search.tsx         # Server Component, form method=GET
+│           ├── tenant-row-actions.tsx
+│           ├── status-badge.tsx
+│           └── empty-state.tsx           # AC-DSH-08
+├── api/
+│   ├── auth/[...nextauth]/route.ts       # Auth.js handler
+│   └── tenants/
+│       ├── route.ts                      # GET (list), POST (create) — PBI 24729
+│       └── [tenantId]/route.ts           # GET, PUT, DELETE — PBI 24729
+└── middleware.ts                          # session validation + SYSTEM_ADMIN role guard on (admin)/*
+
+actions/
+├── auth.ts                                # 'use server' — thin wrapper calling /api/auth
+└── tenants.ts                             # 'use server' — thin wrappers calling /api/tenants/*
+
+lib/
+├── db.ts                                  # single Prisma client instance
+├── api-client.ts                          # server-side fetch helper for internal API calls (base URL, auth headers)
+├── audit.ts                               # writeAuditLog(entityType, entityId, action, performedBy, changes)
+├── schemas/
+│   ├── tenant.schema.ts                   # Zod: create/update tenant + administrator
+│   └── auth.schema.ts                     # Zod: login payload
+└── auth/
+    └── auth.config.ts                     # Auth.js config, Credentials provider, role callback
+
+prisma/
 ├── schema.prisma
-└── migrations
+├── dev.db                                 # gitignored
+└── seed.ts
 
-migrations
-└── tenant-template0001_init.sql
-
-stores
-└── ui-store.ts                      # Zustand — sidebar collapse only, nothing data-related
+stores/
+└── ui-store.ts                            # Zustand — sidebar collapse only
 ```
-
-### Specific implementation requirements
-
-1. Tenant list page (`tenantspage.tsx`) Server Component reading `status`, `q`, `page`, `sort`, `order` from `searchParams`. Fetch tenants via `tenant.repository.ts` with those filters applied at the SQL level (not in-memory). Render an inline `table` with sortable column headers built as links that toggle `sort``order` params. Show a status badge per row (color-coded activesuspendedpending). Include pagination links at the bottom.
-
-2. Tenant filters a Server Component rendering a native `form method=GET action=tenants` with a search input (`name=q`) and status `select` — submitting navigates and re-renders the page with new filters. No JavaScript required for this to function.
-
-3. Create tenant flow (`tenantsnewpage.tsx`) plain HTML form posting to a Server Action. Validate with the shared `tenantSchema` (name, slug regex `^[a-z0-9-]+$`, plan enum, admin email). On validation failure, redirect back with an error query param rendered above the form. On success create the control DB record with `status 'pending'`, call the provisioning service, update status to `active`, `revalidatePath('tenants')`, then redirect to `tenants`.
-
-4. Suspenddelete actions each table row has a small `form action={suspendTenant}` with a hidden `tenantId` input and a submit button. Route the actual destructive confirmation through a dedicated `[tenantId]suspendpage.tsx` route rather than a client-side dialog.
-
-5. Auth middleware checks session cookie on every `(admin)` route, redirects unauthenticated requests to `login`. Determine whether this portal is for platform operators only (single global session, no per-tenant context switching) or also serves tenant-level admins (in which case use separate route groups, e.g. `(platform-admin)` vs `(tenant-admin)`, with different middleware guards) — ask me which before scaffolding auth if it's not already clear from context.
-
-6. Validation define all schemas in `libschemas`. Every Server Action must `safeParse` its input before touching the database, regardless of what client-side `required``type` attributes already enforce.
-
-7. No TanStack Query, no client-side table library, no Kendo UI. This is intentionally a zero-client-JS-by-default implementation for the tenant management flow — confirm this constraint before introducing any client component beyond the sidebar toggle.
-
-### Acceptance criteria
-- Tenant list, filtering, sorting, and pagination work correctly with JavaScript disabled in the browser.
-- Creating a tenant provisions an actual new PostgreSQL database and updates its status without manual intervention.
-- No raw database credentials appear in the control DB table or in any client-visible code path.
-- `lib` has no imports from `app` or `components` (one-way dependency `app → components → lib`).
-- Running `tsc --noEmit` and Zod validation both pass for the tenant creation flow with intentionally invalid input (bad slug, missing email, etc.) before touching the database.
 
 ---
 
-Adjust scope (e.g. skip provisioning automation and stub it, or skip auth if it's handled elsewhere) by telling me which sections to omit before you run this.
+## 4. Internal REST API contract (PBI 24729)
+
+| Method | Route | Purpose | Auth | Success | Errors |
+|---|---|---|---|---|---|
+| POST | `/api/tenants` | Create tenant + tenant admin in one transaction | SYSTEM_ADMIN session required | `201` + created tenant | `400` validation, `409` duplicate tenant code / username, `401`/`403` |
+| GET | `/api/tenants` | List tenants, supports `?q=&status=&page=&sort=&order=` | SYSTEM_ADMIN session required | `200` + `{ data, total, page }` | `401`/`403` |
+| GET | `/api/tenants/[id]` | Get one tenant + its administrator | SYSTEM_ADMIN session required | `200` + tenant | `404`, `401`/`403` |
+| PUT | `/api/tenants/[id]` | Update tenant/administrator fields | SYSTEM_ADMIN session required | `200` + updated tenant, audit log written | `400`, `404`, `401`/`403` |
+| DELETE | `/api/tenants/[id]` | Delete or deactivate per business rule | SYSTEM_ADMIN session required | `200`/`204`, audit log written | `404`, `401`/`403` |
+| POST | `/api/tenants/[id]/activate` | Set status ACTIVE | SYSTEM_ADMIN session required | `200`, audit log written | `404`, `401`/`403` |
+| POST | `/api/tenants/[id]/deactivate` | Set status INACTIVE | SYSTEM_ADMIN session required | `200`, audit log written | `404`, `401`/`403` |
+
+- **AC-DTL-06 / AC-DSH-07 business rule to implement explicitly:** decide and hardcode the rule — recommend *soft delete* (set an internal flag or reuse `INACTIVE` + a `deletedAt` timestamp) rather than a hard `DELETE FROM`, since tenants have dependent `User` rows and an audit trail requirement. State this decision in the README; don't leave it ambiguous in code.
+- Every route handler: `safeParse` the request body with the shared Zod schema before touching Prisma, return `400` with field-level messages on failure (AC-API-06, AC-CRT-02).
+- Every route handler checks the session and role before doing anything else; return `401` if no session, `403` if session exists but role isn't `SYSTEM_ADMIN` (AC-API-07, AC-LGN-05).
+
+---
+
+## 5. PBI-to-implementation map
+
+### 24475 — Login (`feature/24475-login`)
+- `(auth)/login/page.tsx`: native form, `username`/`password` fields, submit button, error message region (AC-LGN-01, AC-LGN-04).
+- Server Action → Auth.js `signIn("credentials", ...)`. On success, redirect to `/tenants` (AC-LGN-02). On failure, redisplay form with an authentication error, don't leak whether it was the username or password that was wrong (AC-LGN-03).
+- Auth.js `callbacks.jwt`/`session` embeds `role`. `middleware.ts` rejects any session where `role !== "SYSTEM_ADMIN"` on `(admin)/*` routes (AC-LGN-05).
+- Session strategy: JWT, `httpOnly` secure cookie (AC-LGN-06).
+
+### 24726 — Dashboard (`feature/24726-tenant-dashboard`)
+- `(admin)/tenants/page.tsx`, Server Component, is the landing page post-login (AC-DSH-01).
+- Fetches from `GET /api/tenants?...searchParams` — not Prisma directly. Passes the resulting `data`/`total`/`page` down as props into `<TenantTable>`.
+- `tenant-table.tsx` (Client Component) wraps `useReactTable` with `manualSorting: true`, `manualPagination: true`, `manualFiltering: true` — it renders sort-arrow buttons and pagination controls, but clicking them does `router.push` with updated `searchParams` rather than mutating any local table state. The actual re-fetch happens because Next.js re-runs the Server Component on navigation, same as the plain-links approach from the earlier draft — TanStack Table is purely the rendering/interaction layer on top of that.
+- `tenant-columns.tsx` defines columns: Tenant Code, Cooperative Name, Tenant Admin (first+last name), Email, Status (via `status-badge.tsx`), Created Date (AC-DSH-02).
+- `tenant-search.tsx` (Server Component): `form method="GET"`, `name="q"` (AC-DSH-03).
+- "Create Tenant" button linking to `/tenants/new` (AC-DSH-04).
+- Row actions column: View → `/tenants/[id]`, Edit → `/tenants/[id]/edit`, Delete → confirm route (AC-DSH-05/06/07).
+- `empty-state.tsx` renders when `data.length === 0`, in place of the table (AC-DSH-08).
+
+### 24727 — Create Tenant (`feature/24727-create-tenant`)
+- `(admin)/tenants/new/page.tsx`: single form, three field groups — Cooperative (name, address), Administrator (first name, last name, mobile, email, role), Account (tenant code, username) (AC-CRT-01).
+- Zod schema requires all mandatory fields; missing fields render inline validation messages on redisplay, not just a toast (AC-CRT-02).
+- Server Action posts to `POST /api/tenants`. The route handler wraps tenant creation + administrator `User` creation in a single `prisma.$transaction([...])` — both succeed or both roll back (AC-CRT-03).
+- Uniqueness checks (`tenantCode`, `username`) run inside the same transaction/route handler before insert; on conflict return `409` and surface a field-specific error ("Tenant code already exists" / "Username already exists") rather than a generic failure (AC-CRT-04, AC-CRT-05).
+- On success: success message (e.g. via a redirect query param rendered as a toast/banner on `/tenants`) and redirect to the dashboard (AC-CRT-06).
+- Cancel is a plain link back to `/tenants` — no form submission, nothing written (AC-CRT-07).
+
+### 24728 — Tenant Details (`feature/24728-tenant-details`)
+- `(admin)/tenants/[tenantId]/page.tsx`: fetches `GET /api/tenants/[id]`, renders tenant + administrator info and current status badge (AC-DTL-01, AC-DTL-02).
+- `edit/page.tsx`: prefilled form, submits to `PUT /api/tenants/[id]` (AC-DTL-03).
+- `activate/page.tsx` / `deactivate/page.tsx`: confirmation routes posting to the respective API endpoints (AC-DTL-04, AC-DTL-05).
+- `delete/page.tsx`: confirmation route, applies the soft-delete/deactivate rule decided in §4 (AC-DTL-06).
+- Every mutating route handler (`PUT`, `DELETE`, `activate`, `deactivate`) calls `lib/audit.ts` → writes an `AuditLog` row with the acting System Admin's `User.id`, before/after diff for updates (AC-DTL-07).
+
+### 24729 — Tenants API (`feature/24729-tenants-api`)
+- Implement the full contract in §4. This PBI is the dependency for 24726/24727/24728 — sequence it first, or stub the route handlers with mock in-memory responses on day one so the frontend branches aren't blocked while the real Prisma-backed logic lands.
+- Standard response shape for all endpoints: `{ data: ... }` on success, `{ error: { message, fields? } }` on failure, matched to the correct HTTP status code (AC-API-08).
+
+---
+
+## 6. Guides for implementation
+
+**Validation:** one Zod schema per resource action (`createTenantSchema`, `updateTenantSchema`, `loginSchema`) in `lib/schemas/`. Route handlers and any Server Action that pre-checks both import the same schema — never redefine field rules in two places.
+
+**Auth guard pattern:** `middleware.ts` handles route-level redirect-to-login for unauthenticated users hitting `(admin)/*`. Individual API route handlers still re-check `session.role === "SYSTEM_ADMIN"` themselves — middleware is a UX convenience, not the security boundary for the API.
+
+**Audit logging:** every state-changing API route handler calls `writeAuditLog` after a successful Prisma write, inside the same function, not as an afterthought in the UI layer. If the write itself fails, no audit row should be written for that action.
+
+**Error surfacing convention:** validation and conflict errors return structured JSON (`{ error: { message, fields } }`) from the API; the Server Action or Server Component reading the API response maps that into the redirect query param / inline form error the page renders. Don't let raw API error bodies leak to the UI unformatted.
+
+**Response payload consistency:** never return `passwordHash` in any API response, including nested administrator objects inside a tenant payload.
+
+---
+
+## 7. Setup steps (in order)
+
+```bash
+# 1. scaffold + install (see §1)
+# 2. write schema.prisma (see §2)
+npx prisma migrate dev --name init
+npx tsx prisma/seed.ts
+
+# 3. implement lib/db.ts, lib/schemas/*, lib/auth/auth.config.ts
+# 4. implement app/api/tenants/* and app/api/auth/[...nextauth]/route.ts   → branch: feature/24729-tenants-api
+# 5. implement (auth)/login                                                → branch: feature/24475-login
+# 6. implement (admin)/tenants (dashboard)                                 → branch: feature/24726-tenant-dashboard
+# 7. implement (admin)/tenants/new                                        → branch: feature/24727-create-tenant
+# 8. implement (admin)/tenants/[tenantId]/*                                → branch: feature/24728-tenant-details
+
+npm run dev
+```
+
+Each branch above is cut from `main` per the standing convention (`feature/{PBI-ID}-short-desc`). PBI 24729 should land first (or be stubbed first) since 24726–24728 all depend on it being callable.
+
+---
+
+## 8. Explicitly deferred (do not build this sprint)
+
+- Per-tenant database provisioning, `CREATE DATABASE` automation, connection pooling/LRU cache, secrets manager integration — the multi-tenant-DB architecture from the original scoping doc.
+- Control DB vs. per-tenant DB split.
+- Any auth beyond Credentials/session (no SSO, no MFA).
+- Tenant Administrator's own portal/login experience — 24727 only creates that account; it doesn't build the surface they'd log into.
+- Automated tests — acceptable to skip this sprint unless you want to add Vitest as a follow-up; not included in the package list above for that reason.
+
+---
+
+If anything in §4's business-rule call (soft delete vs. hard delete) or the REST-vs-direct-DB shift changes your intent, flag it before implementation starts — those two decisions ripple through every PBI in this sprint.

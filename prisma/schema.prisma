@@ -1,0 +1,61 @@
+// DATABASE_URL is loaded from .env by both the Prisma CLI (v6) and Next.js.
+// For SQLite, "file:./dev.db" in .env resolves relative to this schema file,
+// so the database lives at prisma/dev.db regardless of process.cwd().
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  SYSTEM_ADMIN
+  TENANT_ADMIN
+}
+
+enum TenantStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  email        String   @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  mobileNumber String?
+  role         UserRole
+  tenantId     String?
+  tenant       Tenant?  @relation(fields: [tenantId], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Tenant {
+  id                 String       @id @default(cuid())
+  tenantCode         String       @unique
+  cooperativeName    String
+  cooperativeAddress String
+  status             TenantStatus @default(ACTIVE)
+  deletedAt          DateTime?
+  administrators     User[]
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@index([deletedAt])
+  @@index([status])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  entityType  String
+  entityId    String
+  action      String
+  performedBy String
+  changes     String?
+  createdAt   DateTime @default(now())
+}
