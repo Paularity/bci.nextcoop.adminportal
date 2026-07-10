@@ -15,7 +15,7 @@ export default auth((req) => {
 
   if (isAuthPage) {
     if (session && role === "SYSTEM_ADMIN") {
-      return NextResponse.redirect(new URL("/tenants", req.nextUrl));
+      return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
     }
     return;
   }

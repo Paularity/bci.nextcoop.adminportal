@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useActionState, useEffect } from "react";
-import { toast } from "sonner";
+import { Input } from "@progress/kendo-react-inputs";
+import { Label } from "@progress/kendo-react-labels";
+import { Button } from "@progress/kendo-react-buttons";
+import { Loader } from "@progress/kendo-react-indicators";
 import { createTenantAction, type FormActionState } from "@/actions/tenants";
-import { Loader2 } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
+import { toast } from "@/shared/ui/toast/toast.store";
 
 const initial: FormActionState = {};
 
@@ -31,9 +31,9 @@ function Field({
   const err = state.fields?.[fieldKey];
   return (
     <div className="space-y-1.5">
-      <Label htmlFor={id}>
+      <Label editorId={id}>
         {label}
-        {required && <span className="text-destructive"> *</span>}
+        {required && <span className="text-red-600"> *</span>}
       </Label>
       <Input
         id={id}
@@ -41,9 +41,9 @@ function Field({
         type={type}
         required={required}
         defaultValue={state.values?.[name] ?? ""}
-        aria-invalid={!!err}
+        valid={!err}
       />
-      {err && <p className="text-xs text-destructive">{err}</p>}
+      {err && <p className="text-xs text-red-600">{err}</p>}
     </div>
   );
 }
@@ -56,9 +56,9 @@ export function CreateTenantForm() {
   }, [state]);
 
   return (
-    <form action={formAction} className="space-y-8 animate-in fade-in-50 duration-300">
+    <form action={formAction} className="space-y-8">
       {state.error && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {state.error}
         </div>
       )}
@@ -79,7 +79,9 @@ export function CreateTenantForm() {
           <Field id="email" name="email" type="email" label="Email" required state={state} fieldKey="administrator.email" />
           <Field id="mobileNumber" name="mobileNumber" label="Mobile Number" state={state} fieldKey="administrator.mobileNumber" />
         </div>
-        <div className="text-sm text-muted-foreground">Role will be assigned as Tenant Administrator.</div>
+        <div className="text-sm text-slate-500">
+          Role will be assigned as Tenant Administrator.
+        </div>
       </section>
 
       <section className="space-y-4">
@@ -91,13 +93,25 @@ export function CreateTenantForm() {
         </div>
       </section>
 
-      <div className="flex justify-end gap-2 pt-4 border-t">
-        <Button asChild variant="outline">
-          <Link href="/tenants">Cancel</Link>
-        </Button>
-        <Button type="submit" disabled={pending}>
-          {pending && <Loader2 className="animate-spin" />}
-          {pending ? "Creating..." : "Create Tenant"}
+      <div className="flex justify-end gap-2 pt-4">
+        <Link
+          href="/tenants"
+          tabIndex={pending ? -1 : undefined}
+          aria-disabled={pending}
+          onClick={(e) => pending && e.preventDefault()}
+        >
+          <Button type="button" fillMode="outline" disabled={pending}>
+            Cancel
+          </Button>
+        </Link>
+        <Button type="submit" themeColor="primary" disabled={pending}>
+          {pending ? (
+            <span className="inline-flex items-center gap-2">
+              <Loader size="small" type="pulsing" /> Creating...
+            </span>
+          ) : (
+            "Save"
+          )}
         </Button>
       </div>
     </form>

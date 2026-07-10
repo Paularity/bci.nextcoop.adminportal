@@ -1,63 +1,100 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
-import { Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import Link from "next/link";
+import { useActionState, useEffect, useState } from "react";
+import { Input, Checkbox } from "@progress/kendo-react-inputs";
+import { Label } from "@progress/kendo-react-labels";
+import { Button } from "@progress/kendo-react-buttons";
+import { Loader } from "@progress/kendo-react-indicators";
+import { User } from "lucide-react";
 import { loginAction, type LoginActionState } from "@/actions/auth";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
+import { toast } from "@/shared/ui/toast/toast.store";
 
 const initialState: LoginActionState = {};
 
 export function LoginForm() {
   const [state, formAction, pending] = useActionState(loginAction, initialState);
+  const [username, setUsername] = useState(state.values?.username ?? "");
+  const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(false);
 
   useEffect(() => {
     if (state.error) toast.error(state.error);
   }, [state]);
 
+  useEffect(() => {
+    if (state.values?.username != null) setUsername(state.values.username);
+  }, [state.values?.username]);
+
   return (
     <form action={formAction} className="space-y-4">
-      {state.error && (
-        <div
-          role="alert"
-          className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-        >
-          {state.error}
-        </div>
-      )}
       <div className="space-y-1.5">
-        <Label htmlFor="username">Username</Label>
+        <Label editorId="username" className="text-xs text-slate-600">
+          Email or Username
+        </Label>
         <Input
           id="username"
           name="username"
           autoComplete="username"
-          defaultValue={state.values?.username ?? ""}
-          aria-invalid={!!state.fields?.username}
+          value={username}
+          onChange={(e) => setUsername(String(e.value ?? ""))}
+          valid={!state.fields?.username}
           required
         />
         {state.fields?.username && (
-          <p className="text-xs text-destructive">{state.fields.username}</p>
+          <p className="text-xs text-red-600">{state.fields.username}</p>
         )}
       </div>
+
       <div className="space-y-1.5">
-        <Label htmlFor="password">Password</Label>
+        <Label editorId="password" className="text-xs text-slate-600">
+          Password
+        </Label>
         <Input
           id="password"
           name="password"
           type="password"
           autoComplete="current-password"
-          aria-invalid={!!state.fields?.password}
+          value={password}
+          onChange={(e) => setPassword(String(e.value ?? ""))}
+          valid={!state.fields?.password}
           required
         />
         {state.fields?.password && (
-          <p className="text-xs text-destructive">{state.fields.password}</p>
+          <p className="text-xs text-red-600">{state.fields.password}</p>
         )}
       </div>
-      <Button type="submit" disabled={pending} className="w-full">
-        {pending && <Loader2 className="animate-spin" />}
-        {pending ? "Signing in..." : "Sign in"}
+
+      <div className="flex items-center justify-between">
+        <Checkbox
+          value={remember}
+          onChange={(e) => setRemember(Boolean(e.value))}
+          label="Remember me"
+        />
+        <Link
+          href="#"
+          className="text-sm font-semibold"
+          style={{ color: "var(--brand-primary-hover)" }}
+        >
+          Forgot Password?
+        </Link>
+      </div>
+
+      <Button
+        type="submit"
+        themeColor="primary"
+        disabled={pending}
+        className="w-full"
+      >
+        {pending ? (
+          <span className="inline-flex items-center gap-2">
+            <Loader size="small" type="pulsing" /> Signing in...
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-2">
+            <User className="size-4" /> Log in
+          </span>
+        )}
       </Button>
     </form>
   );

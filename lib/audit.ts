@@ -1,15 +1,21 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
 export type AuditAction = "CREATE" | "UPDATE" | "ACTIVATE" | "DEACTIVATE" | "DELETE";
 
-export async function writeAuditLog(params: {
-  entityType: string;
-  entityId: string;
-  action: AuditAction;
-  performedBy: string;
-  changes?: Record<string, unknown> | null;
-}) {
-  await prisma.auditLog.create({
+type PrismaClientLike = typeof prisma | Prisma.TransactionClient;
+
+export async function writeAuditLog(
+  params: {
+    entityType: string;
+    entityId: string;
+    action: AuditAction;
+    performedBy: string;
+    changes?: Record<string, unknown> | null;
+  },
+  client: PrismaClientLike = prisma
+) {
+  await client.auditLog.create({
     data: {
       entityType: params.entityType,
       entityId: params.entityId,

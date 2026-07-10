@@ -1,9 +1,8 @@
 import { notFound } from "next/navigation";
-import { Building2, FileText, Pencil } from "lucide-react";
 import { apiFetch } from "@/lib/api-client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import PageBreadcrumb from "@/shared/ui/page/page-breadcrumb";
+import SectionCard from "@/shared/ui/page/section-card";
 import { EditTenantForm } from "./edit-form";
-import { TenantsBreadcrumb } from "../../_components/tenants-breadcrumb";
 import type { TenantRow } from "../../_components/types";
 
 export default async function EditTenantPage({
@@ -15,27 +14,31 @@ export default async function EditTenantPage({
   const res = await apiFetch<TenantRow>(`/api/tenants/${tenantId}`);
   if (!res.ok || !res.data) {
     if (res.status === 404) notFound();
-    return <div className="text-destructive">{res.error?.message ?? "Failed to load tenant"}</div>;
+    return (
+      <div className="text-red-600">
+        {res.error?.message ?? "Failed to load tenant"}
+      </div>
+    );
   }
   const t = res.data;
 
   return (
-    <div className="max-w-3xl space-y-4 animate-in fade-in-50 duration-300">
-      <TenantsBreadcrumb
-        trail={[
-          { label: "Tenants", href: "/tenants", icon: Building2 },
-          { label: t.cooperativeName, href: `/tenants/${t.id}`, icon: FileText },
-          { label: "Edit", icon: Pencil },
+    <div className="space-y-4">
+      <PageBreadcrumb
+        items={[
+          { label: "Tenants", href: "/tenants" },
+          { label: t.cooperativeName, href: `/tenants/${t.id}` },
+          { label: "Edit" },
         ]}
       />
-      <Card>
-        <CardHeader>
-          <CardTitle>Edit Tenant</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <h1 className="text-2xl font-semibold text-slate-900">Edit Tenant</h1>
+      <div className="border-b border-slate-200" />
+
+      <div className="mx-auto max-w-2xl">
+        <SectionCard title="Tenant Details">
           <EditTenantForm tenant={t} />
-        </CardContent>
-      </Card>
+        </SectionCard>
+      </div>
     </div>
   );
 }

@@ -5,6 +5,7 @@ export type TenantRow = {
   cooperativeAddress: string;
   status: "ACTIVE" | "INACTIVE";
   createdAt: string;
+  updatedAt: string;
   administrator: {
     id: string;
     firstName: string;
@@ -15,8 +16,7 @@ export type TenantRow = {
   } | null;
 };
 
-export type TenantListResponse = {
-  data: TenantRow[];
+export type TenantListMeta = {
   total: number;
   page: number;
   pageSize: number;

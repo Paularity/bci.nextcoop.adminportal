@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ZodError, z } from "zod";
+import { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 
 export function ok<T>(data: T, init?: number | ResponseInit) {
@@ -26,10 +27,10 @@ export function zodToFields(err: ZodError): Record<string, string> {
 export async function requireSystemAdmin() {
   const session = await auth();
   if (!session?.user) return { error: fail(401, "Authentication required") } as const;
-  const role = (session.user as { role?: string }).role;
-  if (role !== "SYSTEM_ADMIN") return { error: fail(403, "Forbidden") } as const;
-  const uid = (session.user as { id?: string }).id ?? "";
-  return { session, userId: uid } as const;
+  if (session.user.role !== "SYSTEM_ADMIN") {
+    return { error: fail(403, "Forbidden") } as const;
+  }
+  return { session, userId: session.user.id } as const;
 }
 
 export async function parseJson<T extends z.ZodTypeAny>(
@@ -52,16 +53,46 @@ export async function parseJson<T extends z.ZodTypeAny>(
   return { ok: true, data: parsed.data };
 }
 
-export function stripPasswordHash<T extends { passwordHash?: string } | null | undefined>(u: T): T {
-  if (!u) return u;
-  const { passwordHash: _ph, ...rest } = u as { passwordHash?: string } & Record<string, unknown>;
-  void _ph;
-  return rest as unknown as T;
+/**
+ * Translate a Prisma unique-constraint violation (P2002) into a 409 response,
+ * mapping each conflicting column into `fields` so the client can highlight it.
+ */
+export function handlePrismaKnownError(
+  err: unknown,
+  fieldLabelMap: Record<string, { field: string; message: string }> = {}
+): NextResponse | null {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError)) return null;
+  if (err.code !== "P2002") return null;
+  const targets = (err.meta as { target?: string[] | string } | undefined)?.target;
+  const cols = Array.isArray(targets) ? targets : targets ? [targets] : [];
+  const fields: Record<string, string> = {};
+  for (const col of cols) {
+    const mapped = fieldLabelMap[col];
+    if (mapped) fields[mapped.field] = mapped.message;
+    else fields[col] = `${col} already exists`;
+  }
+  return fail(409, "Conflict", fields);
 }
 
-export function shapeTenant(tenant: {
-  administrators: Array<Record<string, unknown> & { passwordHash?: string }>;
-} & Record<string, unknown>) {
+// ---------- resource shape helpers ---------------------------------------
+
+type AdminPayload = Prisma.UserGetPayload<Record<string, never>>;
+type TenantWithAdmins = Prisma.TenantGetPayload<{
+  include: { administrators: true };
+}>;
+
+type AdminDto = Omit<AdminPayload, "passwordHash">;
+export type TenantDto = Omit<TenantWithAdmins, "administrators"> & {
+  administrator: AdminDto | null;
+};
+
+function stripPasswordHash(user: AdminPayload): AdminDto {
+  const { passwordHash: _ignored, ...rest } = user;
+  void _ignored;
+  return rest;
+}
+
+export function shapeTenant(tenant: TenantWithAdmins): TenantDto {
   const { administrators, ...rest } = tenant;
   return {
     ...rest,

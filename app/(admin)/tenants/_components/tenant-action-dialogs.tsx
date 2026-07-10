@@ -1,20 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Loader2 } from "lucide-react";
-import { toast } from "sonner";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+import { Button } from "@progress/kendo-react-buttons";
+import ConfirmDialog from "@/shared/ui/dialog/confirm-dialog";
+import { toast } from "@/shared/ui/toast/toast.store";
 import {
   activateTenantAction,
   deactivateTenantAction,
@@ -25,80 +14,29 @@ type Kind = "activate" | "deactivate" | "delete";
 
 const COPY: Record<
   Kind,
-  { title: string; description: string; confirm: string; destructive?: boolean }
+  { title: string; message: string; confirmLabel: string; confirmTheme: "primary" | "error" | "warning" }
 > = {
   activate: {
-    title: "Activate this tenant?",
-    description: "The tenant administrator will regain access to their portal.",
-    confirm: "Activate",
+    title: "Activate Tenant",
+    message: "The tenant administrator will regain access to their portal.",
+    confirmLabel: "Activate",
+    confirmTheme: "primary",
   },
   deactivate: {
-    title: "Deactivate this tenant?",
-    description:
+    title: "Deactivate Tenant",
+    message:
       "The tenant administrator will not be able to sign in until you reactivate.",
-    confirm: "Deactivate",
-    destructive: true,
+    confirmLabel: "Deactivate",
+    confirmTheme: "warning",
   },
   delete: {
-    title: "Delete this tenant?",
-    description:
-      "This is a soft delete — the tenant will be marked deleted and set inactive. Dependent accounts and the audit trail are preserved.",
-    confirm: "Delete",
-    destructive: true,
+    title: "Delete Tenant",
+    message:
+      "This is a soft delete — the tenant is marked deleted and set inactive. Dependent accounts and the audit trail are preserved.",
+    confirmLabel: "Delete",
+    confirmTheme: "error",
   },
 };
-
-function ConfirmDialog({
-  kind,
-  tenantId,
-  triggerButton,
-}: {
-  kind: Kind;
-  tenantId: string;
-  triggerButton: React.ReactElement;
-}) {
-  const copy = COPY[kind];
-  const [pending, startTransition] = React.useTransition();
-
-  const onConfirm = () => {
-    startTransition(async () => {
-      try {
-        if (kind === "activate") await activateTenantAction(tenantId);
-        if (kind === "deactivate") await deactivateTenantAction(tenantId);
-        if (kind === "delete") await deleteTenantAction(tenantId);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Action failed";
-        if (!message.includes("NEXT_REDIRECT")) toast.error(message);
-      }
-    });
-  };
-
-  return (
-    <AlertDialog>
-      <AlertDialogTrigger render={triggerButton} />
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{copy.title}</AlertDialogTitle>
-          <AlertDialogDescription>{copy.description}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            variant={copy.destructive ? "destructive" : "default"}
-            onClick={(e) => {
-              e.preventDefault();
-              onConfirm();
-            }}
-            disabled={pending}
-          >
-            {pending && <Loader2 className="animate-spin" />}
-            {pending ? "Working..." : copy.confirm}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-}
 
 export function TenantActionDialogs({
   tenantId,
@@ -107,36 +45,65 @@ export function TenantActionDialogs({
   tenantId: string;
   isActive: boolean;
 }) {
+  const [target, setTarget] = React.useState<Kind | null>(null);
+  const [pending, startTransition] = React.useTransition();
+
+  const onConfirm = () => {
+    if (!target) return;
+    startTransition(async () => {
+      try {
+        if (target === "activate") await activateTenantAction(tenantId);
+        else if (target === "deactivate") await deactivateTenantAction(tenantId);
+        else await deleteTenantAction(tenantId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Action failed";
+        if (!message.includes("NEXT_REDIRECT")) toast.error(message);
+      } finally {
+        setTarget(null);
+      }
+    });
+  };
+
   return (
-    <div className="flex flex-wrap gap-2">
-      {isActive ? (
+    <>
+      <div className="flex flex-wrap gap-2">
+        {isActive ? (
+          <Button
+            fillMode="outline"
+            disabled={pending}
+            onClick={() => setTarget("deactivate")}
+          >
+            Deactivate
+          </Button>
+        ) : (
+          <Button
+            fillMode="outline"
+            disabled={pending}
+            onClick={() => setTarget("activate")}
+          >
+            Activate
+          </Button>
+        )}
+        <Button
+          themeColor="error"
+          disabled={pending}
+          onClick={() => setTarget("delete")}
+        >
+          Delete
+        </Button>
+      </div>
+
+      {target && (
         <ConfirmDialog
-          kind="deactivate"
-          tenantId={tenantId}
-          triggerButton={<Button variant="outline">Deactivate</Button>}
-        />
-      ) : (
-        <ConfirmDialog
-          kind="activate"
-          tenantId={tenantId}
-          triggerButton={<Button variant="outline">Activate</Button>}
+          title={COPY[target].title}
+          message={COPY[target].message}
+          confirmLabel={COPY[target].confirmLabel}
+          confirmTheme={COPY[target].confirmTheme}
+          pending={pending}
+          onConfirm={onConfirm}
+          onCancel={() => setTarget(null)}
         />
       )}
-      <ConfirmDialog
-        kind="delete"
-        tenantId={tenantId}
-        triggerButton={<Button variant="destructive">Delete</Button>}
-      />
-    </div>
+    </>
   );
-}
-
-export function DeleteTenantDialog({
-  tenantId,
-  trigger,
-}: {
-  tenantId: string;
-  trigger: React.ReactElement;
-}) {
-  return <ConfirmDialog kind="delete" tenantId={tenantId} triggerButton={trigger} />;
 }

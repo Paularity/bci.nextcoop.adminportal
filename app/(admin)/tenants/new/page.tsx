@@ -1,25 +1,24 @@
-import { Building2, PlusCircle } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import PageBreadcrumb from "@/shared/ui/page/page-breadcrumb";
+import SectionCard from "@/shared/ui/page/section-card";
 import { CreateTenantForm } from "./create-form";
-import { TenantsBreadcrumb } from "../_components/tenants-breadcrumb";
 
 export default function NewTenantPage() {
   return (
-    <div className="max-w-3xl space-y-4 animate-in fade-in-50 duration-300">
-      <TenantsBreadcrumb
-        trail={[
-          { label: "Tenants", href: "/tenants", icon: Building2 },
-          { label: "New", icon: PlusCircle },
+    <div className="space-y-4">
+      <PageBreadcrumb
+        items={[
+          { label: "Tenants", href: "/tenants" },
+          { label: "New" },
         ]}
       />
-      <Card>
-        <CardHeader>
-          <CardTitle>Create Tenant</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <h1 className="text-2xl font-semibold text-slate-900">Create Tenant</h1>
+      <div className="border-b border-slate-200" />
+
+      <div className="mx-auto max-w-2xl">
+        <SectionCard title="Tenant Details">
           <CreateTenantForm />
-        </CardContent>
-      </Card>
+        </SectionCard>
+      </div>
     </div>
   );
 }

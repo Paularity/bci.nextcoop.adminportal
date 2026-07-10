@@ -1,32 +1,31 @@
-import { Skeleton } from "@/components/ui/skeleton";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Skeleton } from "@progress/kendo-react-indicators";
+import { Card, CardBody, CardHeader } from "@progress/kendo-react-layout";
 
 export default function EditTenantLoading() {
   return (
-    <div className="max-w-3xl animate-in fade-in-50 duration-300">
+    <div className="max-w-3xl space-y-4">
+      <Skeleton shape="rectangle" style={{ width: 260, height: 16 }} />
       <Card>
         <CardHeader>
-          <Skeleton className="h-5 w-32" />
+          <Skeleton shape="text" style={{ width: 140, height: 18 }} />
         </CardHeader>
-        <CardContent className="space-y-8">
-          {Array.from({ length: 2 }).map((_, s) => (
-            <div key={s} className="space-y-4">
-              <Skeleton className="h-5 w-40" />
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {Array.from({ length: 4 }).map((_, f) => (
-                  <div key={f} className="space-y-1.5">
-                    <Skeleton className="h-4 w-24" />
-                    <Skeleton className="h-8 w-full" />
-                  </div>
-                ))}
+        <CardBody>
+          <div className="space-y-6">
+            {Array.from({ length: 2 }).map((_, s) => (
+              <div key={s} className="space-y-3">
+                <Skeleton shape="text" style={{ width: 160, height: 16 }} />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {Array.from({ length: 4 }).map((_, f) => (
+                    <div key={f} className="space-y-2">
+                      <Skeleton shape="text" style={{ width: 96, height: 12 }} />
+                      <Skeleton shape="rectangle" style={{ height: 32 }} />
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
-          <div className="flex justify-end gap-2 pt-4 border-t">
-            <Skeleton className="h-8 w-20" />
-            <Skeleton className="h-8 w-32" />
+            ))}
           </div>
-        </CardContent>
+        </CardBody>
       </Card>
     </div>
   );

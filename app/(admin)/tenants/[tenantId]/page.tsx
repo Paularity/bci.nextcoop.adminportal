@@ -1,14 +1,27 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { format } from "date-fns";
-import { Building2, FileText } from "lucide-react";
+import { Button } from "@progress/kendo-react-buttons";
 import { apiFetch } from "@/lib/api-client";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatusBadge } from "../_components/status-badge";
+import PageBreadcrumb from "@/shared/ui/page/page-breadcrumb";
+import SectionCard from "@/shared/ui/page/section-card";
 import { TenantActionDialogs } from "../_components/tenant-action-dialogs";
-import { TenantsBreadcrumb } from "../_components/tenants-breadcrumb";
 import type { TenantRow } from "../_components/types";
+
+function InfoRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-[160px_1fr] gap-3 py-1.5">
+      <span className="font-medium text-slate-800">{label}</span>
+      <span className="text-slate-700">{value}</span>
+    </div>
+  );
+}
 
 export default async function TenantDetailsPage({
   params,
@@ -19,78 +32,98 @@ export default async function TenantDetailsPage({
   const res = await apiFetch<TenantRow>(`/api/tenants/${tenantId}`);
   if (!res.ok || !res.data) {
     if (res.status === 404) notFound();
-    return <div className="text-destructive">{res.error?.message ?? "Failed to load tenant"}</div>;
+    return (
+      <div className="text-red-600">
+        {res.error?.message ?? "Failed to load tenant"}
+      </div>
+    );
   }
   const t = res.data;
   const isActive = t.status === "ACTIVE";
 
   return (
-    <div className="max-w-4xl space-y-4 animate-in fade-in-50 duration-300">
-      <TenantsBreadcrumb
-        trail={[
-          { label: "Tenants", href: "/tenants", icon: Building2 },
-          { label: t.cooperativeName, icon: FileText },
+    <div className="space-y-4">
+      <PageBreadcrumb
+        items={[
+          { label: "Tenants", href: "/tenants" },
+          { label: t.cooperativeName },
         ]}
       />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-semibold tracking-tight">{t.cooperativeName}</h1>
-          <StatusBadge status={t.status} />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button asChild variant="outline">
-            <Link href={`/tenants/${t.id}/edit`}>Edit</Link>
-          </Button>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="text-2xl font-semibold text-slate-900">
+          {t.cooperativeName}
+        </h1>
+        <span
+          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+            isActive
+              ? "bg-green-100 text-green-700"
+              : "bg-slate-100 text-slate-600"
+          }`}
+        >
+          {isActive ? "Active" : "Inactive"}
+        </span>
+        <div className="ml-auto flex flex-wrap gap-2">
+          <Link href={`/tenants/${t.id}/edit`}>
+            <Button themeColor="primary" fillMode="solid">
+              Edit
+            </Button>
+          </Link>
           <TenantActionDialogs tenantId={t.id} isActive={isActive} />
         </div>
       </div>
+      <div className="border-b border-slate-200" />
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card className="transition-shadow hover:shadow-md">
-          <CardHeader>
-            <CardTitle>Cooperative</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <Row label="Tenant Code" value={<span className="font-mono">{t.tenantCode}</span>} />
-            <Row label="Name" value={t.cooperativeName} />
-            <Row label="Address" value={t.cooperativeAddress} />
-            <Row label="Created" value={format(new Date(t.createdAt), "yyyy-MM-dd HH:mm")} />
-          </CardContent>
-        </Card>
+      <SectionCard title="Tenant Details">
+        <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-500">
+          Cooperative Information
+        </h3>
+        <div className="space-y-1">
+          <InfoRow
+            label="Tenant Code:"
+            value={<span className="font-mono">{t.tenantCode}</span>}
+          />
+          <InfoRow label="Name:" value={t.cooperativeName} />
+          <InfoRow label="Address:" value={t.cooperativeAddress} />
+          <InfoRow
+            label="Created:"
+            value={format(new Date(t.createdAt), "MMMM d, yyyy")}
+          />
+        </div>
 
-        <Card className="transition-shadow hover:shadow-md">
-          <CardHeader>
-            <CardTitle>Tenant Administrator</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            {t.administrator ? (
-              <>
-                <Row label="Name" value={`${t.administrator.firstName} ${t.administrator.lastName}`} />
-                <Row label="Username" value={t.administrator.username} />
-                <Row label="Email" value={t.administrator.email} />
-                <Row label="Mobile" value={t.administrator.mobileNumber ?? "—"} />
-              </>
-            ) : (
-              <p className="text-muted-foreground">No administrator assigned.</p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+        <div className="my-5 border-t border-slate-200" />
+
+        <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-500">
+          Administrator
+        </h3>
+        {t.administrator ? (
+          <div className="space-y-1">
+            <InfoRow
+              label="Name:"
+              value={
+                <Link
+                  href="#"
+                  className="font-medium underline"
+                  style={{ color: "#2563eb" }}
+                >
+                  {t.administrator.firstName} {t.administrator.lastName}
+                </Link>
+              }
+            />
+            <InfoRow label="Username:" value={t.administrator.username} />
+            <InfoRow label="Email:" value={t.administrator.email} />
+            <InfoRow label="Mobile:" value={t.administrator.mobileNumber ?? "—"} />
+          </div>
+        ) : (
+          <p className="text-slate-500">No administrator assigned.</p>
+        )}
+      </SectionCard>
 
       <div>
-        <Button asChild variant="ghost">
-          <Link href="/tenants">← Back to tenants</Link>
-        </Button>
+        <Link href="/tenants">
+          <Button fillMode="flat">← Back to tenants</Button>
+        </Link>
       </div>
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex justify-between border-b last:border-0 py-1.5">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-right">{value}</span>
     </div>
   );
 }

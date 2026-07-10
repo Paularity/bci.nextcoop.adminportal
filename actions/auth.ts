@@ -42,7 +42,7 @@ export async function loginAction(
     throw err;
   }
 
-  redirect("/tenants");
+  redirect("/dashboard");
 }
 
 export async function logoutAction() {

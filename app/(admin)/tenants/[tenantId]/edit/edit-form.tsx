@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useActionState, useEffect } from "react";
-import { toast } from "sonner";
+import { Input } from "@progress/kendo-react-inputs";
+import { Label } from "@progress/kendo-react-labels";
+import { Button } from "@progress/kendo-react-buttons";
+import { Loader } from "@progress/kendo-react-indicators";
 import { updateTenantAction, type FormActionState } from "@/actions/tenants";
-import { Loader2 } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
+import { toast } from "@/shared/ui/toast/toast.store";
 import type { TenantRow } from "../../_components/types";
 
 const initial: FormActionState = {};
@@ -24,9 +24,9 @@ export function EditTenantForm({ tenant }: { tenant: TenantRow }) {
   const err = (k: string) => state.fields?.[k];
 
   return (
-    <form action={formAction} className="space-y-8 animate-in fade-in-50 duration-300">
+    <form action={formAction} className="space-y-8">
       {state.error && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {state.error}
         </div>
       )}
@@ -36,13 +36,21 @@ export function EditTenantForm({ tenant }: { tenant: TenantRow }) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FieldWrap label="Tenant Code">
             <Input value={tenant.tenantCode} disabled className="font-mono" />
-            <p className="text-xs text-muted-foreground">Tenant code cannot be changed.</p>
+            <p className="text-xs text-slate-500">Tenant code cannot be changed.</p>
           </FieldWrap>
           <FieldWrap label="Cooperative Name" required error={err("cooperativeName")}>
-            <Input name="cooperativeName" defaultValue={v("cooperativeName", tenant.cooperativeName)} required />
+            <Input
+              name="cooperativeName"
+              defaultValue={v("cooperativeName", tenant.cooperativeName)}
+              required
+            />
           </FieldWrap>
           <FieldWrap label="Cooperative Address" required error={err("cooperativeAddress")}>
-            <Input name="cooperativeAddress" defaultValue={v("cooperativeAddress", tenant.cooperativeAddress)} required />
+            <Input
+              name="cooperativeAddress"
+              defaultValue={v("cooperativeAddress", tenant.cooperativeAddress)}
+              required
+            />
           </FieldWrap>
         </div>
       </section>
@@ -51,27 +59,55 @@ export function EditTenantForm({ tenant }: { tenant: TenantRow }) {
         <h2 className="text-lg font-medium">Administrator</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FieldWrap label="First Name" required error={err("administrator.firstName")}>
-            <Input name="firstName" defaultValue={v("firstName", tenant.administrator?.firstName ?? "")} required />
+            <Input
+              name="firstName"
+              defaultValue={v("firstName", tenant.administrator?.firstName ?? "")}
+              required
+            />
           </FieldWrap>
           <FieldWrap label="Last Name" required error={err("administrator.lastName")}>
-            <Input name="lastName" defaultValue={v("lastName", tenant.administrator?.lastName ?? "")} required />
+            <Input
+              name="lastName"
+              defaultValue={v("lastName", tenant.administrator?.lastName ?? "")}
+              required
+            />
           </FieldWrap>
           <FieldWrap label="Email" required error={err("administrator.email")}>
-            <Input name="email" type="email" defaultValue={v("email", tenant.administrator?.email ?? "")} required />
+            <Input
+              name="email"
+              type="email"
+              defaultValue={v("email", tenant.administrator?.email ?? "")}
+              required
+            />
           </FieldWrap>
           <FieldWrap label="Mobile Number" error={err("administrator.mobileNumber")}>
-            <Input name="mobileNumber" defaultValue={v("mobileNumber", tenant.administrator?.mobileNumber ?? "")} />
+            <Input
+              name="mobileNumber"
+              defaultValue={v("mobileNumber", tenant.administrator?.mobileNumber ?? "")}
+            />
           </FieldWrap>
         </div>
       </section>
 
-      <div className="flex justify-end gap-2 pt-4 border-t">
-        <Button asChild variant="outline">
-          <Link href={`/tenants/${tenant.id}`}>Cancel</Link>
-        </Button>
-        <Button type="submit" disabled={pending}>
-          {pending && <Loader2 className="animate-spin" />}
-          {pending ? "Saving..." : "Save Changes"}
+      <div className="flex justify-end gap-2 pt-4">
+        <Link
+          href={`/tenants/${tenant.id}`}
+          tabIndex={pending ? -1 : undefined}
+          aria-disabled={pending}
+          onClick={(e) => pending && e.preventDefault()}
+        >
+          <Button type="button" fillMode="outline" disabled={pending}>
+            Cancel
+          </Button>
+        </Link>
+        <Button type="submit" themeColor="primary" disabled={pending}>
+          {pending ? (
+            <span className="inline-flex items-center gap-2">
+              <Loader size="small" type="pulsing" /> Saving...
+            </span>
+          ) : (
+            "Save"
+          )}
         </Button>
       </div>
     </form>
@@ -93,10 +129,10 @@ function FieldWrap({
     <div className="space-y-1.5">
       <Label>
         {label}
-        {required && <span className="text-destructive"> *</span>}
+        {required && <span className="text-red-600"> *</span>}
       </Label>
       {children}
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && <p className="text-xs text-red-600">{error}</p>}
     </div>
   );
 }

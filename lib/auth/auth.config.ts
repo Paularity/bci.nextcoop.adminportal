@@ -47,15 +47,15 @@ export const authConfig = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.uid = (user as { id: string }).id;
-        token.role = (user as { role: string }).role;
+        token.uid = user.id;
+        token.role = user.role;
       }
       return token;
     },
     async session({ session, token }) {
       if (token) {
-        (session.user as { id?: string }).id = token.uid as string;
-        (session.user as { role?: string }).role = token.role as string;
+        session.user.id = String(token.uid ?? "");
+        session.user.role = token.role as "SYSTEM_ADMIN" | "TENANT_ADMIN";
       }
       return session;
     },
