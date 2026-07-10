@@ -10,14 +10,15 @@ import {
 } from "@progress/kendo-react-dropdowns";
 import {
   eyeIcon,
-  filterClearIcon,
   pencilIcon,
   plusIcon,
   trashIcon,
 } from "@progress/kendo-svg-icons";
-import type {
-  GridCustomCellProps,
-  GridCustomFilterCellProps,
+import {
+  GridColumnMenuFilter,
+  type GridColumnMenuFilterUIProps,
+  type GridColumnMenuProps,
+  type GridCustomCellProps,
 } from "@progress/kendo-react-grid";
 import ServerGrid, { type ServerGridColumn } from "@/shared/ui/grid/server-grid";
 import { useGridUrlState } from "@/shared/ui/grid/use-grid-url-state";
@@ -53,70 +54,57 @@ function StatusCell(props: GridCustomCellProps) {
   );
 }
 
-// ─── Status dropdown filter cell (Kendo KB pattern) ───────────────────────────
+//Column menus (Kendo filter menu)
+function StandardColumnMenu(props: GridColumnMenuProps) {
+  return <GridColumnMenuFilter {...props} expanded />;
+}
+
 
 type StatusFilterOption = { text: string; value: "ACTIVE" | "INACTIVE" | null };
-const STATUS_DEFAULT_ITEM: StatusFilterOption = { text: "All", value: null };
+
 const STATUS_FILTER_OPTIONS: StatusFilterOption[] = [
+  { text: "All", value: null },
   { text: "Active", value: "ACTIVE" },
   { text: "Inactive", value: "INACTIVE" },
 ];
 
-function StatusFilterCell(props: GridCustomFilterCellProps) {
+function StatusFilterUI(props: GridColumnMenuFilterUIProps) {
+  const { firstFilterProps } = props;
   const currentValue =
-    STATUS_FILTER_OPTIONS.find((opt) => opt.value === props.value) ??
-    STATUS_DEFAULT_ITEM;
-  const hasFilter =
-    props.value !== null && props.value !== undefined && props.value !== "";
+    STATUS_FILTER_OPTIONS.find((opt) => opt.value === firstFilterProps.value) ??
+    STATUS_FILTER_OPTIONS[0];
 
   const onChange = (event: DropDownListChangeEvent) => {
     const picked = event.value as StatusFilterOption;
-    const active = picked.value !== STATUS_DEFAULT_ITEM.value;
-    props.onChange({
-      value: active ? picked.value : "",
-      operator: active ? "eq" : "",
+    firstFilterProps.onChange({
+      value: picked.value ?? "",
+      operator: picked.value === null ? "" : "eq",
       syntheticEvent: event.syntheticEvent,
     });
   };
 
-  const onClear = (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    props.onChange({
-      value: "",
-      operator: "",
-      syntheticEvent: event as unknown as React.SyntheticEvent,
-    });
-  };
-
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 4,
-        width: "100%",
-        padding: "8px 8px",
-        boxSizing: "border-box",
-      }}
-    >
+    <div style={{ padding: 4 }}>
       <DropDownList
         data={STATUS_FILTER_OPTIONS}
-        defaultItem={STATUS_DEFAULT_ITEM}
         textField="text"
         dataItemKey="text"
         value={currentValue}
         onChange={onChange}
-        style={{ flex: 1, minWidth: 0 }}
-      />
-      <Button
-        type="button"
-        title="Clear"
-        fillMode="flat"
-        svgIcon={filterClearIcon}
-        disabled={!hasFilter}
-        onClick={onClear}
+        style={{ width: "100%" }}
       />
     </div>
+  );
+}
+
+function StatusColumnMenu(props: GridColumnMenuProps) {
+  return (
+    <GridColumnMenuFilter
+      {...props}
+      filterUI={StatusFilterUI}
+      expanded
+      hideSecondFilter
+    />
   );
 }
 
@@ -190,23 +178,46 @@ export function TenantsGrid({ data, total }: TenantsGridProps) {
   );
 
   const columns: ServerGridColumn<Row>[] = [
-    { field: "tenantCode", title: "Tenant Code", filter: "text", width: "160px" },
-    { field: "cooperativeName", title: "Cooperative Name", filter: "text" },
-    { field: "administratorName", title: "Tenant Admin", filter: "text" },
-    { field: "administratorEmail", title: "Email", filter: "text" },
+    {
+      field: "tenantCode",
+      title: "Tenant Code",
+      filter: "text",
+      width: "160px",
+      columnMenu: StandardColumnMenu,
+    },
+    {
+      field: "cooperativeName",
+      title: "Cooperative Name",
+      filter: "text",
+      columnMenu: StandardColumnMenu,
+    },
+    {
+      field: "administratorName",
+      title: "Tenant Admin",
+      filter: "text",
+      columnMenu: StandardColumnMenu,
+    },
+    {
+      field: "administratorEmail",
+      title: "Email",
+      filter: "text",
+      columnMenu: StandardColumnMenu,
+    },
     {
       field: "status",
       title: "Status",
       filter: "text",
       width: "180px",
-      cells: { data: StatusCell, filterCell: StatusFilterCell },
+      cells: { data: StatusCell },
+      columnMenu: StatusColumnMenu,
     },
     {
       field: "createdAtDate",
       title: "Created",
+      filter: "date",
       format: "{0:yyyy-MM-dd}",
-      filterable: false,
       width: "180px",
+      columnMenu: StandardColumnMenu,
     },
     {
       title: "Actions",
@@ -239,6 +250,7 @@ export function TenantsGrid({ data, total }: TenantsGridProps) {
         state={state}
         onStateChange={onStateChange}
         columns={columns}
+        filterable={false}
         toolbarChildren={
           <Button
             themeColor="primary"
